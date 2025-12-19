@@ -60,27 +60,41 @@
         </div>
     </div>
 
+    <!-- MOBILE SIDEBAR OVERLAY -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-20 hidden md:hidden transition-opacity"></div>
+
     <!-- MAIN APP LAYOUT -->
-    <div id="app-screen" class="flex h-full max-w-7xl mx-auto shadow-2xl bg-white opacity-0 transition-opacity duration-500 pointer-events-none">
+    <div id="app-screen" class="flex h-full max-w-7xl mx-auto shadow-2xl bg-white opacity-0 transition-opacity duration-500 pointer-events-none relative">
         
-        <!-- SIDEBAR (Users) - Hidden on mobile by default -->
-        <div class="w-20 md:w-72 bg-slate-50 border-r border-slate-200 flex flex-col hidden md:flex">
-            <div class="p-4 md:p-6 border-b border-slate-200 flex items-center justify-center md:justify-start gap-3">
-                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0">
-                    <i data-lucide="message-circle" class="text-white w-6 h-6"></i>
+        <!-- SIDEBAR (Users) -->
+        <div id="sidebar" class="absolute md:relative w-72 h-full bg-slate-50 border-r border-slate-200 flex flex-col transform -translate-x-full md:translate-x-0 transition-transform duration-300 z-30 shadow-xl md:shadow-none">
+            <div class="p-4 md:p-6 border-b border-slate-200 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0">
+                        <i data-lucide="message-circle" class="text-white w-6 h-6"></i>
+                    </div>
+                    <h2 class="font-bold text-lg text-slate-800">QuickChat</h2>
                 </div>
-                <h2 class="font-bold text-lg hidden md:block text-slate-800">QuickChat</h2>
+                <button id="close-sidebar-btn" class="md:hidden p-2 text-slate-400 hover:bg-slate-200 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
             </div>
             
-            <div class="p-4 border-b border-slate-200 hidden md:block">
+            <div class="p-4 border-b border-slate-200">
                 <div class="relative">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
-                    <input type="text" placeholder="Search (Active users only)" class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
+                    <input type="text" placeholder="Search users" class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-400">
                 </div>
             </div>
 
             <div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
-                <div class="px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider hidden md:block">Recent Speakers</div>
+                <div class="px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider flex justify-between items-center">
+                    <span>Recent Speakers</span>
+                    <div id="connection-status" class="flex items-center gap-1.5 text-orange-500" title="Connecting...">
+                        <span class="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+                        <span class="text-[10px]">Connecting</span>
+                    </div>
+                </div>
                 <!-- Real Users List -->
                 <div id="users-list" class="space-y-1">
                     <!-- Users injected via JS -->
@@ -92,7 +106,7 @@
                     <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold" id="current-user-avatar">
                         YOU
                     </div>
-                    <div class="hidden md:block overflow-hidden">
+                    <div class="overflow-hidden">
                         <p class="font-medium text-sm truncate" id="current-user-name">Guest</p>
                         <p class="text-xs text-green-500 flex items-center gap-1">
                             <span class="w-2 h-2 rounded-full bg-green-500"></span> Online
@@ -103,12 +117,12 @@
         </div>
 
         <!-- MAIN CHAT AREA -->
-        <div class="flex-1 flex flex-col bg-white relative">
+        <div class="flex-1 flex flex-col bg-white relative w-full">
             
             <!-- CHAT HEADER -->
             <div class="h-16 border-b border-slate-200 flex items-center justify-between px-4 md:px-6 bg-white z-10">
                 <div class="flex items-center gap-3">
-                    <button class="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg">
+                    <button id="menu-btn" class="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg">
                         <i data-lucide="menu" class="w-6 h-6"></i>
                     </button>
                     <div>
@@ -194,6 +208,27 @@
         const messagesContainer = document.getElementById('messages-container');
         const usersList = document.getElementById('users-list');
         const participantCount = document.getElementById('participant-count');
+        const connectionStatus = document.getElementById('connection-status');
+        
+        // Mobile Sidebar Elements
+        const menuBtn = document.getElementById('menu-btn');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        const closeSidebarBtn = document.getElementById('close-sidebar-btn');
+
+        // --- Mobile Sidebar Logic ---
+        function toggleSidebar(show) {
+            if (show) {
+                sidebar.classList.remove('-translate-x-full');
+                sidebarOverlay.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                sidebarOverlay.classList.add('hidden');
+            }
+        }
+        menuBtn.addEventListener('click', () => toggleSidebar(true));
+        closeSidebarBtn.addEventListener('click', () => toggleSidebar(false));
+        sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
 
         // --- Init Auth ---
         const initAuth = async () => {
@@ -217,9 +252,11 @@
                 joinBtnIcon.setAttribute('data-lucide', 'arrow-right');
                 joinBtnIcon.classList.remove('animate-spin');
                 lucide.createIcons();
+                
+                // Update Connection Status UI
+                connectionStatus.className = "flex items-center gap-1.5 text-green-500";
+                connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-current"></span><span class="text-[10px]">Connected</span>`;
 
-                // If we already have a username (reloading page), auto-join?
-                // Let's force them to confirm name to keep it simple, but prefill it.
                 if (state.username) {
                     document.getElementById('username').value = state.username;
                 }
@@ -230,7 +267,7 @@
         initAuth();
 
         // --- 1. Handle Login ---
-        loginForm.addEventListener('submit', (e) => {
+        loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const usernameInput = document.getElementById('username');
             const name = usernameInput.value.trim();
@@ -252,9 +289,28 @@
                     appScreen.classList.add('opacity-100');
                     messageInput.focus();
                     startMessageListener();
+                    
+                    // Announce User Join
+                    sendJoinMessage(name);
                 }, 500);
             }
         });
+
+        async function sendJoinMessage(name) {
+            try {
+                // Check if we already joined recently to prevent spam on refresh? 
+                // For simplicity, just send it. It helps users see who is here.
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'chat_messages'), {
+                    text: "joined the room",
+                    sender: name,
+                    userId: state.userId,
+                    timestamp: Date.now(),
+                    type: "system"
+                });
+            } catch (e) {
+                console.error("Join message failed", e);
+            }
+        }
 
         // --- 2. Firestore Listener ---
         let unsubscribe = null;
@@ -262,7 +318,6 @@
         function startMessageListener() {
             if (!state.userId) return;
 
-            // Using public data so everyone shares the same room
             const q = collection(db, 'artifacts', appId, 'public', 'data', 'chat_messages');
 
             unsubscribe = onSnapshot(q, (snapshot) => {
@@ -271,7 +326,6 @@
                     allMessages.push({ id: doc.id, ...doc.data() });
                 });
 
-                // Client-side sort (Rule 2: No complex queries in Firestore)
                 allMessages.sort((a, b) => a.timestamp - b.timestamp);
                 
                 state.messages = allMessages;
@@ -279,6 +333,8 @@
                 updateActiveUsers(allMessages);
             }, (error) => {
                 console.error("Error fetching messages:", error);
+                connectionStatus.className = "flex items-center gap-1.5 text-red-500";
+                connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-current"></span><span class="text-[10px]">Disconnected</span>`;
             });
         }
 
@@ -286,7 +342,6 @@
         function renderMessages(messages) {
             messagesContainer.innerHTML = '';
             
-            // Show welcome if empty
             if (messages.length === 0) {
                 messagesContainer.innerHTML = `
                     <div class="flex justify-center mt-10">
@@ -301,7 +356,6 @@
                 return;
             }
 
-            // Date separator (simple version: just show "History" at top)
              const separator = document.createElement('div');
              separator.className = 'flex justify-center my-4';
              separator.innerHTML = '<div class="bg-slate-200 text-slate-600 text-xs px-4 py-1.5 rounded-full shadow-sm">Chat History</div>';
@@ -316,14 +370,26 @@
         }
 
         function addMessageToDOM(msg) {
-            const isMe = msg.userId === state.userId; // Identify by User ID, not just name
+            // Handle System Messages
+            if (msg.type === 'system') {
+                const div = document.createElement('div');
+                div.className = 'flex w-full justify-center my-2 opacity-75';
+                div.innerHTML = `
+                    <div class="bg-slate-100 text-slate-500 text-[10px] md:text-xs px-3 py-1 rounded-full border border-slate-200 flex items-center gap-1">
+                        <span class="font-bold">${escapeHtml(msg.sender)}</span> ${escapeHtml(msg.text)}
+                    </div>
+                `;
+                messagesContainer.appendChild(div);
+                return;
+            }
+
+            const isMe = msg.userId === state.userId;
             const div = document.createElement('div');
             div.className = `flex w-full message-bubble ${isMe ? 'justify-end' : 'justify-start'}`;
             
             const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...';
             const initial = msg.sender.charAt(0).toUpperCase();
             
-            // Generate a consistent color based on user ID string
             const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-blue-500', 'bg-teal-500', 'bg-orange-500'];
             const colorIndex = (msg.userId || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
             const colorClass = colors[colorIndex];
@@ -357,11 +423,11 @@
         }
 
         function updateActiveUsers(messages) {
-            // Derive "active" users from the last 50 messages
-            const recentMessages = messages.slice(-50);
+            const recentMessages = messages.slice(-50); // Look at last 50 events
             const uniqueUsers = new Map();
             
             recentMessages.forEach(msg => {
+                // Include both text and system (join) messages to track presence
                 if (!uniqueUsers.has(msg.userId)) {
                     uniqueUsers.set(msg.userId, {
                         name: msg.sender,
@@ -370,7 +436,6 @@
                 }
             });
 
-            // Ensure current user is in the list locally if not in messages yet
             if (!uniqueUsers.has(state.userId)) {
                 uniqueUsers.set(state.userId, { name: state.username, lastActive: Date.now() });
             }
@@ -380,7 +445,6 @@
 
             usersList.innerHTML = '';
             usersArray.forEach(user => {
-                 // Generate color (same logic as messages)
                 const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-blue-500', 'bg-teal-500', 'bg-orange-500'];
                 const colorIndex = (user.name || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
                 const colorClass = colors[colorIndex];
@@ -396,11 +460,11 @@
                         </div>
                         <div class="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-50 bg-green-500"></div>
                     </div>
-                    <div class="hidden md:block min-w-0">
+                    <div class="block min-w-0">
                         <h4 class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">
                             ${escapeHtml(user.name)} ${isMe ? '(You)' : ''}
                         </h4>
-                        <p class="text-xs text-slate-400 truncate">Active recently</p>
+                        <p class="text-xs text-slate-400 truncate">Online</p>
                     </div>
                 `;
                 usersList.appendChild(div);
@@ -413,7 +477,6 @@
             const text = messageInput.value.trim();
             if (!text || !state.userId) return;
 
-            // Clear immediately for UX
             messageInput.value = '';
             messageInput.focus();
 
@@ -422,7 +485,8 @@
                     text: text,
                     sender: state.username,
                     userId: state.userId,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    type: 'text'
                 });
             } catch (error) {
                 console.error("Error sending message", error);
@@ -438,7 +502,6 @@
             }
         });
 
-        // --- Utilities ---
         function scrollToBottom() {
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
@@ -456,7 +519,6 @@
             setTimeout(() => toast.classList.add('translate-x-full'), 3000);
         }
 
-        // Init Lucide initially for Login screen
         lucide.createIcons();
     </script>
 </body>
