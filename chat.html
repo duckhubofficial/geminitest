@@ -56,6 +56,7 @@
                     <span>Connecting...</span>
                     <i data-lucide="loader" class="w-4 h-4 animate-spin"></i>
                 </button>
+                <p id="error-msg" class="text-red-500 text-xs text-center hidden">Connection taking too long. Check internet?</p>
             </form>
         </div>
     </div>
@@ -134,6 +135,9 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
+                    <div class="hidden md:flex items-center text-xs text-slate-400 mr-2 bg-slate-100 px-3 py-1 rounded-full">
+                        Try "@bot help"
+                    </div>
                     <button class="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Settings">
                         <i data-lucide="settings" class="w-5 h-5"></i>
                     </button>
@@ -156,7 +160,7 @@
                     <div class="flex-1 relative">
                         <textarea id="message-input" rows="1" 
                             class="w-full pl-4 pr-4 py-3 bg-slate-100 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all resize-none max-h-32 custom-scrollbar placeholder-slate-400 text-slate-700"
-                            placeholder="Type a message..." required></textarea>
+                            placeholder="Type a message (or @bot help)..." required></textarea>
                     </div>
                     <button type="submit" 
                         class="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md shadow-blue-200 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -203,6 +207,7 @@
         const joinBtn = document.getElementById('join-btn');
         const joinBtnText = joinBtn.querySelector('span');
         const joinBtnIcon = joinBtn.querySelector('i');
+        const errorMsg = document.getElementById('error-msg');
         const messageForm = document.getElementById('message-form');
         const messageInput = document.getElementById('message-input');
         const messagesContainer = document.getElementById('messages-container');
@@ -231,7 +236,26 @@
         sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
 
         // --- Init Auth ---
+        let connectionTimeout;
         const initAuth = async () => {
+            // Set safety timeout
+            connectionTimeout = setTimeout(() => {
+                if (joinBtn.disabled) {
+                    joinBtnText.textContent = "Retry Connection";
+                    joinBtn.disabled = false; 
+                    joinBtnIcon.classList.remove('animate-spin');
+                    joinBtnIcon.setAttribute('data-lucide', 'refresh-cw');
+                    errorMsg.classList.remove('hidden');
+                    lucide.createIcons();
+                    
+                    // Allow manual retry
+                    joinBtn.onclick = (e) => {
+                        e.preventDefault();
+                        window.location.reload();
+                    };
+                }
+            }, 6000); // 6 seconds timeout
+
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
@@ -246,11 +270,17 @@
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
+                clearTimeout(connectionTimeout); // Clear safety timeout
                 state.userId = user.uid;
                 joinBtn.disabled = false;
                 joinBtnText.textContent = "Join Room";
                 joinBtnIcon.setAttribute('data-lucide', 'arrow-right');
                 joinBtnIcon.classList.remove('animate-spin');
+                errorMsg.classList.add('hidden');
+                
+                // Reset click handler if it was changed by timeout
+                joinBtn.onclick = null; 
+                
                 lucide.createIcons();
                 
                 // Update Connection Status UI
@@ -298,8 +328,6 @@
 
         async function sendJoinMessage(name) {
             try {
-                // Check if we already joined recently to prevent spam on refresh? 
-                // For simplicity, just send it. It helps users see who is here.
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'chat_messages'), {
                     text: "joined the room",
                     sender: name,
@@ -384,15 +412,22 @@
             }
 
             const isMe = msg.userId === state.userId;
+            const isBot = msg.sender === 'SmartBot';
+            
             const div = document.createElement('div');
             div.className = `flex w-full message-bubble ${isMe ? 'justify-end' : 'justify-start'}`;
             
             const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...';
             const initial = msg.sender.charAt(0).toUpperCase();
             
-            const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-blue-500', 'bg-teal-500', 'bg-orange-500'];
-            const colorIndex = (msg.userId || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
-            const colorClass = colors[colorIndex];
+            let colorClass;
+            if (isBot) {
+                colorClass = 'bg-gradient-to-br from-gray-700 to-gray-900';
+            } else {
+                const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-blue-500', 'bg-teal-500', 'bg-orange-500'];
+                const colorIndex = (msg.userId || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
+                colorClass = colors[colorIndex];
+            }
 
             if (isMe) {
                 div.innerHTML = `
@@ -407,11 +442,13 @@
                 div.innerHTML = `
                     <div class="flex items-end gap-2 max-w-[80%] md:max-w-[60%]">
                         <div class="w-8 h-8 rounded-full ${colorClass} flex-shrink-0 flex items-center justify-center text-white text-xs font-bold shadow-sm mb-4 hidden md:flex" title="${msg.sender}">
-                            ${initial}
+                            ${isBot ? '<i data-lucide="bot" class="w-4 h-4"></i>' : initial}
                         </div>
                         <div class="flex flex-col items-start">
-                            <span class="text-[10px] text-slate-500 ml-1 mb-1 font-medium">${escapeHtml(msg.sender)}</span>
-                            <div class="bg-white border border-slate-100 text-slate-800 px-5 py-3 rounded-2xl rounded-tl-sm shadow-sm text-sm md:text-base leading-relaxed break-words">
+                            <span class="text-[10px] text-slate-500 ml-1 mb-1 font-medium flex items-center gap-1">
+                                ${escapeHtml(msg.sender)} ${isBot ? '<span class="bg-gray-200 text-gray-600 text-[9px] px-1 rounded">BOT</span>' : ''}
+                            </span>
+                            <div class="${isBot ? 'bg-gray-50 border-gray-200' : 'bg-white border-slate-100'} border text-slate-800 px-5 py-3 rounded-2xl rounded-tl-sm shadow-sm text-sm md:text-base leading-relaxed break-words">
                                 ${escapeHtml(msg.text)}
                             </div>
                             <span class="text-[10px] text-slate-400 mt-1 ml-1 font-medium">${time}</span>
@@ -423,40 +460,60 @@
         }
 
         function updateActiveUsers(messages) {
-            const recentMessages = messages.slice(-50); // Look at last 50 events
+            const recentMessages = messages.slice(-50); 
             const uniqueUsers = new Map();
             
+            // Always add SmartBot to the user list
+            uniqueUsers.set('smartbot', {
+                name: 'SmartBot',
+                lastActive: Date.now(),
+                isBot: true
+            });
+
             recentMessages.forEach(msg => {
-                // Include both text and system (join) messages to track presence
-                if (!uniqueUsers.has(msg.userId)) {
+                if (!uniqueUsers.has(msg.userId) && msg.sender !== 'SmartBot') {
                     uniqueUsers.set(msg.userId, {
                         name: msg.sender,
-                        lastActive: msg.timestamp
+                        lastActive: msg.timestamp,
+                        isBot: false
                     });
                 }
             });
 
             if (!uniqueUsers.has(state.userId)) {
-                uniqueUsers.set(state.userId, { name: state.username, lastActive: Date.now() });
+                uniqueUsers.set(state.userId, { name: state.username, lastActive: Date.now(), isBot: false });
             }
 
-            const usersArray = Array.from(uniqueUsers.values()).sort((a,b) => b.lastActive - a.lastActive);
+            // Sort: Bot first, then active users
+            const usersArray = Array.from(uniqueUsers.values()).sort((a,b) => {
+                if (a.isBot) return -1;
+                if (b.isBot) return 1;
+                return b.lastActive - a.lastActive;
+            });
+            
             participantCount.textContent = `${usersArray.length} participant${usersArray.length !== 1 ? 's' : ''}`;
 
             usersList.innerHTML = '';
             usersArray.forEach(user => {
-                const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-blue-500', 'bg-teal-500', 'bg-orange-500'];
-                const colorIndex = (user.name || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
-                const colorClass = colors[colorIndex];
-                
                 const isMe = user.name === state.username;
+                let colorClass, avatarContent;
+
+                if (user.isBot) {
+                    colorClass = 'bg-gray-800';
+                    avatarContent = '<i data-lucide="bot" class="w-5 h-5"></i>';
+                } else {
+                    const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-blue-500', 'bg-teal-500', 'bg-orange-500'];
+                    const colorIndex = (user.name || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
+                    colorClass = colors[colorIndex];
+                    avatarContent = user.name.charAt(0).toUpperCase();
+                }
 
                 const div = document.createElement('div');
                 div.className = 'flex items-center gap-3 p-3 rounded-xl hover:bg-white hover:shadow-sm cursor-pointer transition-all group';
                 div.innerHTML = `
                     <div class="relative">
                         <div class="w-10 h-10 rounded-full ${colorClass} flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                            ${user.name.charAt(0).toUpperCase()}
+                            ${avatarContent}
                         </div>
                         <div class="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-50 bg-green-500"></div>
                     </div>
@@ -464,14 +521,15 @@
                         <h4 class="text-sm font-semibold text-slate-700 truncate group-hover:text-blue-600 transition-colors">
                             ${escapeHtml(user.name)} ${isMe ? '(You)' : ''}
                         </h4>
-                        <p class="text-xs text-slate-400 truncate">Online</p>
+                        <p class="text-xs text-slate-400 truncate">${user.isBot ? 'Always here to help' : 'Online'}</p>
                     </div>
                 `;
                 usersList.appendChild(div);
             });
+            lucide.createIcons();
         }
 
-        // --- 4. Send Message ---
+        // --- 4. Send Message & SmartBot Logic ---
         messageForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const text = messageInput.value.trim();
@@ -481,6 +539,7 @@
             messageInput.focus();
 
             try {
+                // 1. Send User Message
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'chat_messages'), {
                     text: text,
                     sender: state.username,
@@ -488,11 +547,67 @@
                     timestamp: Date.now(),
                     type: 'text'
                 });
+
+                // 2. Check for Bot Command (Only the sender processes it to avoid duplicate replies)
+                if (text.toLowerCase().startsWith('@bot') || text.toLowerCase().startsWith('/bot')) {
+                    handleBotCommand(text);
+                }
+
             } catch (error) {
                 console.error("Error sending message", error);
                 showToast("Failed to send message");
             }
         });
+
+        async function handleBotCommand(text) {
+            const cmd = text.toLowerCase().replace('@bot', '').replace('/bot', '').trim();
+            let reply = "";
+
+            if (cmd.startsWith('calc')) {
+                // Simple safe calculator
+                try {
+                    const math = cmd.replace('calc', '').trim();
+                    // Basic validation to prevent XSS/Eval issues
+                    if (/^[0-9+\-*/().\s]*$/.test(math)) {
+                         reply = `The result is: ${eval(math)}`;
+                    } else {
+                         reply = "I can only calculate basic math (numbers, +, -, *, /).";
+                    }
+                } catch(e) { reply = "Oops, that didn't look like valid math."; }
+            } 
+            else if (cmd.includes('joke')) {
+                const jokes = [
+                    "Why did the web developer leave the restaurant? Because of the table layout.",
+                    "How do you comfort a JavaScript bug? You console it.",
+                    "Why was the computer cold? It left its Windows open.",
+                    "What do you call a fake noodle? An impasta!"
+                ];
+                reply = jokes[Math.floor(Math.random() * jokes.length)];
+            }
+            else if (cmd.includes('time')) {
+                reply = `Current time is ${new Date().toLocaleTimeString()}`;
+            }
+            else if (cmd.includes('help')) {
+                reply = "I'm SmartBot! 🤖 Try these commands:\n• @bot calc 5*5\n• @bot joke\n• @bot time\n• @bot flip coin";
+            }
+            else if (cmd.includes('flip coin')) {
+                reply = Math.random() > 0.5 ? "Heads! 🪙" : "Tails! 🪙";
+            }
+            else {
+                reply = "I didn't quite catch that. Try '@bot help' to see what I can do!";
+            }
+
+            // Simulate "Thinking" delay
+            setTimeout(async () => {
+                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'chat_messages'), {
+                    text: reply,
+                    sender: "SmartBot",
+                    userId: "smartbot_system_id",
+                    timestamp: Date.now() + 100, // Ensure it appears after
+                    type: 'text'
+                });
+            }, 800);
+        }
 
         // Handle Enter Key
         messageInput.addEventListener('keydown', (e) => {
