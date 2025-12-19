@@ -52,12 +52,9 @@
     import { getFirestore, doc, setDoc, onSnapshot, collection, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // --- Configuration & Initialization ---
-    const firebaseConfig = JSON.parse(__firebase_config);
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'simple-blocks-v1';
-
+    let db, auth, appId;
+    const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+    
     const CANVAS = document.getElementById('gameCanvas');
     const CTX = CANVAS.getContext('2d');
     const PLAYER_SIZE = 36;
@@ -67,7 +64,7 @@
     const WORLD_SIZE = { width: 3000, height: 800 };
 
     let me = {
-        id: null,
+        id: 'local-' + Math.floor(Math.random() * 1000),
         x: Math.random() * (WORLD_SIZE.width - PLAYER_SIZE),
         y: WORLD_SIZE.height - PLAYER_SIZE,
         vy: 0,
@@ -81,42 +78,58 @@
     let messages = [];
     const keys = {};
     let isInitialized = false;
+    let isOnline = false;
 
     async function init() {
-        const initAuth = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
+        // Fallback to local mode immediately so user can see the world
+        document.getElementById('status').innerText = "LOCAL MODE";
+        
+        if (!firebaseConfigStr) {
+            console.warn("No Firebase configuration found. Running in offline mode.");
+            return;
+        }
+
+        try {
+            const firebaseConfig = JSON.parse(firebaseConfigStr);
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            appId = typeof __app_id !== 'undefined' ? __app_id : 'simple-blocks-v1';
+
+            const initAuth = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Auth Error:", error);
                 }
-            } catch (error) {
-                console.error("Auth Error:", error);
-                document.getElementById('status').innerText = "OFFLINE";
-            }
-        };
+            };
 
-        await initAuth();
+            await initAuth();
 
-        onAuthStateChanged(auth, (user) => {
-            if (user && !isInitialized) {
-                me.id = user.uid;
-                isInitialized = true;
-                document.getElementById('status').innerText = "ONLINE";
-                setupSync();
-            }
-        });
+            onAuthStateChanged(auth, (user) => {
+                if (user && !isOnline) {
+                    me.id = user.uid;
+                    isOnline = true;
+                    document.getElementById('status').innerText = "ONLINE";
+                    setupSync();
+                }
+            });
+        } catch (e) {
+            console.error("Firebase Initialization failed:", e);
+        }
     }
 
     function setupSync() {
-        if (!me.id) return;
+        if (!me.id || !db) return;
         
-        // Use strict paths as per environment rules
         const playersRef = collection(db, 'artifacts', appId, 'public', 'data', 'players');
         const chatRef = collection(db, 'artifacts', appId, 'public', 'data', 'chat');
 
-        // Guard every Firestore operation with auth check
-        const playerUnsubscribe = onSnapshot(playersRef, (snapshot) => {
+        onSnapshot(playersRef, (snapshot) => {
             if (!auth.currentUser) return;
             const newPlayers = {};
             snapshot.forEach(doc => {
@@ -124,21 +137,21 @@
                 if (Date.now() - data.lastUpdate < 10000) newPlayers[doc.id] = data;
             });
             players = newPlayers;
-            document.getElementById('player-count').innerText = `${Object.keys(players).length} ${Object.keys(players).length === 1 ? 'Player' : 'Players'} Online`;
+            const count = Object.keys(players).length || 1;
+            document.getElementById('player-count').innerText = `${count} ${count === 1 ? 'Player' : 'Players'} Online`;
         }, (error) => console.error("Player sync error:", error));
 
-        const chatUnsubscribe = onSnapshot(chatRef, (snapshot) => {
+        onSnapshot(chatRef, (snapshot) => {
             if (!auth.currentUser) return;
             const msgs = [];
             snapshot.forEach(doc => msgs.push(doc.data()));
-            // Sort in memory as per rule 2
             msgs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
             messages = msgs.slice(-10);
             renderChat();
         }, (error) => console.error("Chat sync error:", error));
 
         setInterval(async () => {
-            if (!auth.currentUser || !me.id) return;
+            if (!auth.currentUser || !me.id || !isOnline) return;
             try {
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'players', me.id), { 
                     ...me, 
@@ -147,11 +160,16 @@
             } catch (e) {
                 console.error("Heartbeat error:", e);
             }
-        }, 500); // Reduced frequency slightly to be safer
+        }, 500);
     }
 
     async function sendChatMessage(text) {
-        if (!auth.currentUser || !me.id || !text.trim()) return;
+        if (!isOnline || !me.id || !text.trim()) {
+            // Local echo if offline
+            messages.push({ sender: me.name, text: text + " (Offline)", color: me.color });
+            renderChat();
+            return;
+        }
         try {
             const chatRef = collection(db, 'artifacts', appId, 'public', 'data', 'chat');
             await setDoc(doc(chatRef), { 
@@ -198,7 +216,7 @@
         CTX.save();
         CTX.translate(-camX, -camY);
 
-        // Sky background
+        // Simple Clouds
         CTX.fillStyle = 'rgba(255,255,255,0.4)';
         for(let i=0; i<10; i++) {
             CTX.beginPath();
@@ -234,14 +252,14 @@
         CTX.fill();
         
         CTX.fillStyle = '#0f172a';
-        const squint = p.vy < -2 ? 2 : 0;
+        const squint = (p.vy || 0) < -2 ? 2 : 0;
         CTX.fillRect(p.x + 8, p.y + 12 + squint, 6, 6 - squint);
         CTX.fillRect(p.x + 22, p.y + 12 + squint, 6, 6 - squint);
 
         CTX.fillStyle = isLocal ? '#1e293b' : 'white';
         CTX.font = 'bold 9px sans-serif';
         CTX.textAlign = 'center';
-        CTX.fillText(isLocal ? "YOU" : p.name.toUpperCase(), p.x + PLAYER_SIZE/2, p.y - 10);
+        CTX.fillText(isLocal ? "YOU" : (p.name || "PLAYER").toUpperCase(), p.x + PLAYER_SIZE/2, p.y - 10);
     }
 
     function renderChat() {
